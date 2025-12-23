@@ -80,15 +80,32 @@ def process_single_url(url, width, height, fmt, qual):
 
         # 4. Process Image
         img_data = requests.get(img_url, headers=headers, timeout=10)
+        from PIL import ImageOps
+
         with Image.open(io.BytesIO(img_data.content)) as img:
             img = img.convert("RGB")
-            img = img.resize((width, height), Image.LANCZOS)
-            
+
+            # Keep aspect ratio (contain)
+            img = ImageOps.contain(img, (width, height), Image.LANCZOS)
+
+            # Create padded background
+            background_color = (255, 255, 255)
+            background = Image.new("RGB", (width, height), background_color)
+
+            bg_w, bg_h = background.size
+            img_w, img_h = img.size
+
+            # Center the image
+            background.paste(
+                img,
+                ((bg_w - img_w) // 2, (bg_h - img_h) // 2)
+            )
+
             img_byte_arr = io.BytesIO()
             if fmt == "JPEG":
-                img.save(img_byte_arr, format='JPEG', quality=qual)
+                background.save(img_byte_arr, format="JPEG", quality=qual)
             else:
-                img.save(img_byte_arr, format='PNG')
+                background.save(img_byte_arr, format="PNG")
                 
             return filename, img_byte_arr.getvalue(), None
             
