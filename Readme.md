@@ -1,4 +1,4 @@
-# 🚀 Janebi Dashboard
+# 🚀 Marketing Dashboard (Janebi)
 <p align="center">
   <strong>Internal Utility Dashboard (Built for Self-Preservation)</strong>
 </p>
