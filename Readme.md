@@ -96,6 +96,20 @@ Navigation. Nothing surprising.
 
 ---
 
+## 🖼️ Product Image Scraper – Important Note
+
+⚠️ **Website Compatibility Warning**
+
+The image scraper is **NOT universal by default**.
+
+It is currently optimized for **janebi.com**, which uses a specific HTML structure
+for product images:
+
+```html
+<img id="main_product_image" ...>
+```
+---
+
 ## ⚙️ Requirements
 
 ```txt

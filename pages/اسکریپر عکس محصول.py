@@ -7,6 +7,23 @@ import io
 import zipfile
 import concurrent.futures
 
+# ⚠️ WEBSITE-SPECIFIC SELECTOR ⚠️
+# The line below is customized for janebi.com.
+# Most websites use DIFFERENT HTML structures for product images.
+#
+# To make this scraper work on another website, you MUST:
+# 1. Inspect the product page in your browser (Right-click → Inspect)
+# 2. Find the main product <img> tag
+# 3. Change the selector below (id / class / attributes) accordingly
+#
+# Examples:
+# soup.find("img", {"class": "product-image"})
+# soup.find("img", {"id": "main-image"})
+# soup.select_one("img[data-zoom-image]")
+#
+# If no image is found, this selector is the FIRST thing you should change.
+# img_tag = soup.find("img", {"id": "main_product_image"})
+
 st.set_page_config(page_title="Product Image Scraper", page_icon="🖼️", layout="centered")
 
 st.title("High-Speed Image Scraper ⚡")
