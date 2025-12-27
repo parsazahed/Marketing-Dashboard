@@ -31,7 +31,7 @@ They are now buttons.
 - یکسان‌سازی شماره‌ها
 - حذف داده‌ی تکراری
 - اسکریپ عکس محصول
-- تبدیل همه عکس‌ها به 512×512  
+- تبدیل همه عکس‌ها به 512×512 یا ابعاد دلخواه
 
 از من زمان میگرفت.
 با این تولکیت دیگه میتونم روی کارای خودم تمرکز کنم.
@@ -55,7 +55,7 @@ Navigation. Nothing surprising.
   - Resize
   - Pad
 - Output:
-  - 512×512 images
+  - 512×512 images or other dimensions
   - ZIP
   - errors.txt (for reality)
 
