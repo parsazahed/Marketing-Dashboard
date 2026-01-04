@@ -95,6 +95,15 @@ Navigation. Nothing surprising.
   - ZIP
 
 ---
+### Number Filter
+**`pages/ساخت کد QR.py`**
+
+- Input:
+  - 2 Excel/CSV files
+- Options:
+  - Smart Matching (uses the last 10 digits of a number to prevent different formats)
+- Output:
+  - XLSX
 
 ## 🖼️ Product Image Scraper – Important Note
 
