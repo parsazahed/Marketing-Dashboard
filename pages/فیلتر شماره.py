@@ -7,125 +7,158 @@ import re
 def standardize_iranian_number(val):
     """
     1. Converts value to string.
-    2. Removes all non-numeric characters ( +, -, spaces).
+    2. Removes all non-numeric characters (+, -, spaces).
     3. Extracts the last 10 digits.
        Ex: '+98 912 606 0760' -> '9126060760'
        Ex: '09126060760'      -> '9126060760'
     """
-    # Convert to string and strip whitespace
     s = str(val).strip()
-    
-    # Remove anything that is NOT a digit (0-9)
-    # This handles +98, dashes, parenthesis, etc.
     digits_only = re.sub(r'\D', '', s)
     
-    # Logic: Iranian mobile numbers rely on the last 10 digits to be unique.
-    # (e.g. 912xxxxxxx). 
     if len(digits_only) >= 10:
         return digits_only[-10:]
     else:
-        # If the number is too short (bad data), return it as is digits-only
         return digits_only
 
-# --- Main App Layout ---
-st.set_page_config(page_title="Smart Row Remover", layout="centered")
+# --- Helper: Load File ---
+def load_file(uploaded_file):
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            return pd.read_csv(uploaded_file)
+        else:
+            return pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"Error loading {uploaded_file.name}: {e}")
+        return None
 
-st.title("🇮🇷 Smart Phone Number Filter")
+# --- Main App Layout ---
+st.set_page_config(page_title="Multi-File Smart Cleaner", layout="wide")
+
+st.title("🇮🇷 Multi-File Smart Phone Filter")
 st.markdown("""
-This tool removes rows from your **Main File** based on numbers in a **Filter File**.
-**Smart Feature:** It automatically handles formats like `0912...`, `+98912...`, or `98912...`.
+Upload one **Main File** and **Multiple Filter Files**. 
+The app will combine all numbers from the filter files and remove them from the Main File.
 """)
 
 st.markdown("---")
 
-# 1. File Uploaders
-col1, col2 = st.columns(2)
+col1, col2 = st.columns([1, 1])
+
 with col1:
     st.subheader("1. Main File (To Clean)")
-    file1 = st.file_uploader("Upload Main Excel/CSV", type=["xlsx", "xls", "csv"], key="f1")
+    main_file = st.file_uploader("Upload Main File", type=["xlsx", "xls", "csv"], key="main")
 
 with col2:
-    st.subheader("2. Filter File (Blocklist)")
-    file2 = st.file_uploader("Upload Filter Excel/CSV", type=["xlsx", "xls", "csv"], key="f2")
+    st.subheader("2. Filter Files (Blocklist)")
+    # accept_multiple_files=True allows selecting multiple files at once
+    filter_files = st.file_uploader("Upload one or more files", type=["xlsx", "xls", "csv"], 
+                                    accept_multiple_files=True, key="filters")
 
-# 2. Processing
-if file1 and file2:
-    # Load data
-    try:
-        df_main = pd.read_csv(file1) if file1.name.endswith('.csv') else pd.read_excel(file1)
-        df_filter = pd.read_csv(file2) if file2.name.endswith('.csv') else pd.read_excel(file2)
-    except Exception as e:
-        st.error(f"Error reading files: {e}")
-        st.stop()
-
-    st.markdown("---")
+# --- Processing Logic ---
+if main_file and filter_files:
     
-    # 3. Column Selection
-    c1, c2 = st.columns(2)
-    with c1:
-        main_col = st.selectbox("Column in Main File:", df_main.columns)
-    with c2:
-        filter_col = st.selectbox("Column in Filter File:", df_filter.columns)
+    # 1. Load Main File
+    df_main = load_file(main_file)
+    
+    # 2. Load First Filter File (to get column names)
+    # We read the first file just to populate the Dropdown menu
+    first_filter_df = load_file(filter_files[0])
 
-    # 4. Settings
-    st.caption("Settings")
-    use_smart_match = st.checkbox("✅ Enable Smart Matching (Recommended)", value=True, 
-                                  help="Matches numbers regardless of 0, 98, or +98 formatting.")
-
-    # 5. Action
-    if st.button("Run Cleaner"):
-        with st.spinner("Normalizing and comparing numbers..."):
+    if df_main is not None and first_filter_df is not None:
+        st.markdown("---")
+        st.subheader("3. Column Mapping")
+        
+        c1, c2, c3 = st.columns([1, 1, 1])
+        
+        with c1:
+            main_col = st.selectbox("Select ID Column in Main File:", df_main.columns)
             
-            # A. Prepare the Filter List
-            if use_smart_match:
-                # Create a set of "Standardized" numbers from the filter file
-                # We use a set for O(1) lookup speed (very fast)
-                filter_set = set(df_filter[filter_col].apply(standardize_iranian_number))
+        with c2:
+            # We assume all filter files have the same column name for the phone number
+            filter_col = st.selectbox("Select ID Column in Filter Files:", first_filter_df.columns,
+                                      help="Ensure all your filter files have this column header!")
+        
+        with c3:
+            st.write("") # Spacer
+            st.write("") # Spacer
+            use_smart = st.checkbox("✅ Smart Matching", value=True, 
+                                    help="Ignores +98, 0, spaces, etc.")
+
+        st.markdown("---")
+
+        if st.button("🚀 Run Multi-File Cleaning", type="primary"):
+            
+            # --- Step A: Build the Master Blocklist ---
+            master_blocklist = set()
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Loop through all uploaded filter files
+            for i, f_file in enumerate(filter_files):
+                status_text.text(f"Processing filter file: {f_file.name}...")
                 
-                # Create a temporary column in Main DF for comparison
-                temp_comparison_col = df_main[main_col].apply(standardize_iranian_number)
+                df_temp = load_file(f_file)
                 
-                # Logic: Keep row if the standardized version is NOT in the filter set
-                mask = ~temp_comparison_col.isin(filter_set)
+                if df_temp is not None:
+                    # Check if the selected column exists in this file
+                    if filter_col in df_temp.columns:
+                        # Extract numbers
+                        raw_numbers = df_temp[filter_col].dropna().astype(str)
+                        
+                        if use_smart:
+                            # Apply standardization to this file's numbers
+                            clean_nums = raw_numbers.apply(standardize_iranian_number)
+                            master_blocklist.update(clean_nums)
+                        else:
+                            master_blocklist.update(raw_numbers.str.strip())
+                    else:
+                        st.warning(f"⚠️ Column '{filter_col}' not found in {f_file.name}. Skipping this file.")
                 
+                # Update progress bar
+                progress_bar.progress((i + 1) / len(filter_files))
+
+            status_text.text("Applying filter to Main File...")
+            
+            # --- Step B: Clean the Main File ---
+            if use_smart:
+                main_vals_normalized = df_main[main_col].apply(standardize_iranian_number)
+                mask = ~main_vals_normalized.isin(master_blocklist)
             else:
-                # Exact string matching (old way)
-                filter_set = set(df_filter[filter_col].astype(str).str.strip())
-                mask = ~df_main[main_col].astype(str).str.strip().isin(filter_set)
-
-            # Apply the mask
-            df_cleaned = df_main[mask]
-
-            # Calculate stats
-            total_rows = len(df_main)
-            removed = total_rows - len(df_cleaned)
-            remaining = len(df_cleaned)
-
-            # Display Output
-            st.success(f"Done! Removed {removed} rows.")
+                mask = ~df_main[main_col].astype(str).str.strip().isin(master_blocklist)
             
-            # Metrics
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Original", total_rows)
-            m2.metric("Removed", removed, delta_color="inverse")
-            m3.metric("Result", remaining)
+            df_cleaned = df_main[mask]
+            
+            # Stats
+            original_count = len(df_main)
+            removed_count = original_count - len(df_cleaned)
+            final_count = len(df_cleaned)
+            
+            progress_bar.empty()
+            status_text.empty()
 
-            # Preview
-            st.write("### Preview Result")
-            st.dataframe(df_cleaned.head())
-
-            # Download
+            # --- Results ---
+            st.success("Processing Complete!")
+            
+            kpi1, kpi2, kpi3 = st.columns(3)
+            kpi1.metric("Total Rows in Main File", original_count)
+            kpi2.metric("Total Rows Removed", removed_count, delta_color="inverse")
+            kpi3.metric("Rows Remaining", final_count)
+            
+            with st.expander("See Cleaned Data Preview"):
+                st.dataframe(df_cleaned.head(20))
+            
+            # --- Download ---
             buffer = io.BytesIO()
-            # Default to Excel, but could be CSV
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 df_cleaned.to_excel(writer, index=False)
             
             st.download_button(
-                label="📥 Download Cleaned File",
+                label="📥 Download Result (Excel)",
                 data=buffer,
-                file_name="cleaned_numbers.xlsx",
+                file_name="cleaned_master_list.xlsx",
                 mime="application/vnd.ms-excel"
             )
 
-elif not file1 and not file2:
-    st.info("Waiting for files...")
+elif not main_file or not filter_files:
+    st.info("👋 Please upload your files to begin.")
