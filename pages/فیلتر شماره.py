@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import re
+import csv
 
 # --- Helper Function: Smart Normalization ---
 def standardize_iranian_number(val):
@@ -24,14 +25,24 @@ def standardize_iranian_number(val):
 def load_file(uploaded_file):
     try:
         if uploaded_file.name.endswith('.csv'):
-            return pd.read_csv(uploaded_file)
+            # خواندن چند خط اول برای تشخیص جداکننده
+            content = uploaded_file.read(2048).decode('utf-8')
+            uploaded_file.seek(0)
+            
+            dialect = csv.Sniffer().sniff(content)
+            return pd.read_csv(uploaded_file, sep=dialect.delimiter)
         else:
             return pd.read_excel(uploaded_file)
     except Exception as e:
-        st.error(f"Error loading {uploaded_file.name}: {e}")
-        return None
-
+        # در صورت شکست Sniffer، به حالت پیش‌فرض ویرگول برمی‌گردیم
+        try:
+            uploaded_file.seek(0)
+            return pd.read_csv(uploaded_file, sep=',')
+        except:
+            st.error(f"Error loading {uploaded_file.name}: {e}")
+            return None
 # --- Main App Layout ---
+
 st.set_page_config(page_title="Multi-File Smart Cleaner", layout="wide")
 
 st.title("🇮🇷 Multi-File Smart Phone Filter")
