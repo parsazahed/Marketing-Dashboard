@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-import qrcode
-from PIL import Image
 import io
 import zipfile
-from urllib.parse import urlparse
 import requests
+
+from qr_utils import contrast_ratio, generate_qr, get_slug, normalize_link
 
 st.set_page_config(page_title="QR Code Generator", page_icon="🔗", layout="centered")
 
@@ -16,7 +15,7 @@ st.sidebar.header("⚙️ Design Settings")
 
 # Color Settings
 qr_color = st.sidebar.color_picker("QR Data Color", "#000000") 
-bg_choice = st.sidebar.radio("Background Style", ["Transparent", "Solid Color"])
+bg_choice = st.sidebar.radio("Background Style", ["Solid Color", "Transparent"])
 
 if bg_choice == "Solid Color":
     bg_color = st.sidebar.color_picker("Background Color", "#FFFFFF") 
@@ -24,8 +23,13 @@ else:
     bg_color = None # Transparent
 
 # Size Settings
-box_size = st.sidebar.slider("Size (Box Pixel)", 10, 50, 20) 
-border_size = st.sidebar.slider("Border (Quiet Zone)", 0, 10, 4)
+box_size = st.sidebar.slider("Size (Box Pixel)", 10, 50, 20)
+border_size = st.sidebar.slider("Border (Quiet Zone)", 4, 10, 4)
+
+if bg_color and contrast_ratio(qr_color, bg_color) < 4.5:
+    st.sidebar.warning("⚠️ Low color contrast may make this QR code hard to scan.")
+elif bg_color is None:
+    st.sidebar.warning("⚠️ Transparent QR codes need a light, plain background when used.")
 
 # --- HELPER FUNCTIONS ---
 @st.cache_data(ttl=600)  # Caches data for 10 mins so it's faster
@@ -63,53 +67,6 @@ def load_google_sheet(url):
         st.warning("👉 Tip: Make sure the sheet is 'Anyone with the link' > 'Viewer'.")
         return None
 
-def generate_qr(link, fill_hex, back_hex_or_none, box, border):
-    """Generates a PIL Image of the QR code."""
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=box,
-        border=border,
-    )
-    qr.add_data(link)
-    qr.make(fit=True)
-
-    img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
-    
-    datas = img.getdata()
-    new_data = []
-    
-    # Convert hex to RGB tuple
-    fill_rgb = tuple(int(fill_hex.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-    
-    if back_hex_or_none:
-        back_rgb = tuple(int(back_hex_or_none.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-    else:
-        back_rgb = (0, 0, 0, 0)
-
-    for item in datas:
-        if item[0] == 0: 
-            new_data.append(fill_rgb + (255,)) 
-        else:
-            if back_hex_or_none:
-                new_data.append(back_rgb + (255,))
-            else:
-                new_data.append((255, 255, 255, 0)) 
-
-    img.putdata(new_data)
-    return img
-
-def get_slug(url):
-    """Extracts a clean filename from the URL."""
-    try:
-        parsed = urlparse(url)
-        slug = parsed.path.rsplit("/", 1)[-1]
-        if not slug:
-            return "qr_code"
-        return slug
-    except:
-        return "qr_code"
-
 # --- MAIN INPUT SECTION ---
 input_method = st.radio("Choose Input Method:", ["🔗 Single Link", "📂 Upload File", "☁️ Google Sheet"], horizontal=True)
 
@@ -120,7 +77,8 @@ single_link = None
 if input_method == "🔗 Single Link":
     single_link = st.text_input("Enter URL here:", "https://janebi.com")
     
-    if single_link:
+    if single_link.strip():
+        single_link = normalize_link(single_link)
         st.subheader("Preview & Download")
         img = generate_qr(single_link, qr_color, bg_color, box_size, border_size)
         
@@ -163,6 +121,10 @@ else:
             else:
                 st.error("❌ Could not load sheet.")
 
+    if df is not None and len(df.columns) == 0:
+        st.warning("The uploaded source does not contain any columns.")
+        df = None
+
     # Process Data Frame if Loaded
     if df is not None:
         st.divider()
@@ -175,29 +137,29 @@ else:
             default_index = col_options.index("link")
             
         link_column = st.selectbox("Select Column with Links:", col_options, index=default_index)
-        
+
+        valid_links = [
+            normalize_link(value)
+            for value in df[link_column].dropna().tolist()
+            if str(value).strip()
+        ]
+
         # Preview One
-        if not df.empty:
-            preview_url = str(df[link_column].iloc[0])
+        if valid_links:
+            preview_url = valid_links[0]
             st.caption(f"Previewing style using first row: {preview_url}")
             preview_img = generate_qr(preview_url, qr_color, bg_color, box_size, border_size)
             st.image(preview_img, width=150)
+        else:
+            st.warning("The selected column does not contain any links.")
 
         # Generate Button
-        if st.button("🚀 Generate All QR Codes"):
-            links = df[link_column].dropna().tolist()
-            
+        if st.button("🚀 Generate All QR Codes", disabled=not valid_links):
             progress_bar = st.progress(0)
             zip_buffer = io.BytesIO()
             
             with zipfile.ZipFile(zip_buffer, "w") as zf:
-                for i, raw_link in enumerate(links):
-                    link = str(raw_link).strip()
-                    if not link: continue
-                    
-                    if not link.startswith(("http://", "https://")):
-                        link = "https://" + link
-
+                for i, link in enumerate(valid_links):
                     img = generate_qr(link, qr_color, bg_color, box_size, border_size)
                     
                     img_byte_arr = io.BytesIO()
@@ -208,7 +170,7 @@ else:
                         filename = f"{get_slug(link)}_{i}.png"
                     
                     zf.writestr(filename, img_byte_arr.getvalue())
-                    progress_bar.progress((i + 1) / len(links))
+                    progress_bar.progress((i + 1) / len(valid_links))
             
             st.success("🎉 Done!")
             st.download_button(
