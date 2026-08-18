@@ -13,7 +13,23 @@ def standardize_iranian_number(val):
        Ex: '+98 912 606 0760' -> '9126060760'
        Ex: '09126060760'      -> '9126060760'
     """
+    if pd.isna(val):
+        return ""
+
     s = str(val).strip()
+
+    # Excel may infer a phone column containing blanks as floats, turning a
+    # value such as 989121234567 into "989121234567.0". Remove only that
+    # artificial decimal suffix before extracting digits.
+    integer_like = re.fullmatch(r'([0-9۰-۹٠-٩]+)\.0+', s)
+    if integer_like:
+        s = integer_like.group(1)
+
+    # Translate Persian and Arabic-Indic digits to ASCII before matching.
+    s = s.translate(str.maketrans(
+        '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩',
+        '01234567890123456789'
+    ))
     digits_only = re.sub(r'\D', '', s)
     
     if len(digits_only) >= 10:
@@ -24,20 +40,25 @@ def standardize_iranian_number(val):
 # --- Helper: Load File ---
 def load_file(uploaded_file):
     try:
-        if uploaded_file.name.endswith('.csv'):
+        uploaded_file.seek(0)
+
+        if uploaded_file.name.lower().endswith('.csv'):
             # خواندن چند خط اول برای تشخیص جداکننده
             content = uploaded_file.read(2048).decode('utf-8')
             uploaded_file.seek(0)
             
             dialect = csv.Sniffer().sniff(content)
-            return pd.read_csv(uploaded_file, sep=dialect.delimiter)
+            return pd.read_csv(uploaded_file, sep=dialect.delimiter, dtype=str)
         else:
-            return pd.read_excel(uploaded_file)
+            # Phone numbers and other identifiers must remain text. Without
+            # this, a single blank cell can make pandas load the column as
+            # floats and append ".0" to every number.
+            return pd.read_excel(uploaded_file, dtype=str)
     except Exception as e:
         # در صورت شکست Sniffer، به حالت پیش‌فرض ویرگول برمی‌گردیم
         try:
             uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, sep=',')
+            return pd.read_csv(uploaded_file, sep=',', dtype=str)
         except:
             st.error(f"Error loading {uploaded_file.name}: {e}")
             return None
@@ -120,7 +141,7 @@ if main_file and filter_files:
                         if use_smart:
                             # Apply standardization to this file's numbers
                             clean_nums = raw_numbers.apply(standardize_iranian_number)
-                            master_blocklist.update(clean_nums)
+                            master_blocklist.update(num for num in clean_nums if num)
                         else:
                             master_blocklist.update(raw_numbers.str.strip())
                     else:
