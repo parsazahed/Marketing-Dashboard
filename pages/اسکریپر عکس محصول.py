@@ -34,6 +34,14 @@ st.sidebar.header("⚙️ Output Settings")
 # Dimensions & Format
 target_w = st.sidebar.number_input("Target Width (px)", min_value=100, max_value=4000, value=512)
 target_h = st.sidebar.number_input("Target Height (px)", min_value=100, max_value=4000, value=512)
+max_padding = max(0, (min(int(target_w), int(target_h)) - 1) // 2)
+image_padding = st.sidebar.slider(
+    "Image Padding (px)",
+    min_value=0,
+    max_value=max_padding,
+    value=0,
+    help="Adds an even white margin around the image while keeping the output dimensions unchanged.",
+)
 img_format = st.sidebar.selectbox("Output Format", ["JPEG", "PNG"])
 img_quality = st.sidebar.slider("JPEG Quality", 10, 100, 85) if img_format == "JPEG" else 100
 
@@ -69,7 +77,7 @@ def load_google_sheet(url):
         st.error(f"❌ Error loading sheet: {e}")
         return None
 
-def process_single_url(url, width, height, fmt, qual):
+def process_single_url(url, width, height, fmt, qual, padding=0):
     """Worker function for threading."""
     try:
         # Pretend to be Chrome
@@ -102,8 +110,10 @@ def process_single_url(url, width, height, fmt, qual):
         with Image.open(io.BytesIO(img_data.content)) as img:
             img = img.convert("RGB")
 
-            # Keep aspect ratio (contain)
-            img = ImageOps.contain(img, (width, height), Image.LANCZOS)
+            # Keep aspect ratio and leave the requested margin inside the canvas.
+            fit_width = max(1, width - 2 * padding)
+            fit_height = max(1, height - 2 * padding)
+            img = ImageOps.contain(img, (fit_width, fit_height), Image.LANCZOS)
 
             # Create padded background
             background_color = (255, 255, 255)
@@ -139,7 +149,9 @@ if input_method == "🔗 Single Link":
     single_url = st.text_input("Enter Product URL:")
     if single_url and st.button("🚀 Process Link"):
         with st.spinner("Processing..."):
-            fname, img_bytes, error = process_single_url(single_url, target_w, target_h, img_format, img_quality)
+            fname, img_bytes, error = process_single_url(
+                single_url, target_w, target_h, img_format, img_quality, image_padding
+            )
             if img_bytes:
                 st.image(img_bytes, caption=fname, width=300)
                 st.download_button(label="⬇️ Download", data=img_bytes, file_name=fname, mime=f"image/{img_format.lower()}")
@@ -185,7 +197,18 @@ else:
             # Create a ThreadPool
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_threads) as executor:
                 # Submit all tasks
-                future_to_url = {executor.submit(process_single_url, url, target_w, target_h, img_format, img_quality): url for url in urls}
+                future_to_url = {
+                    executor.submit(
+                        process_single_url,
+                        url,
+                        target_w,
+                        target_h,
+                        img_format,
+                        img_quality,
+                        image_padding,
+                    ): url
+                    for url in urls
+                }
                 
                 completed_count = 0
                 
